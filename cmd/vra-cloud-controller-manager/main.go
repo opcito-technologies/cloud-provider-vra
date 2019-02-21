@@ -1,11 +1,11 @@
 
-
 package main
 
 import (
 	goflag "flag"
 	"fmt"
 	"math/rand"
+	"os"
 	"time"
 
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -19,7 +19,9 @@ import (
 	utilflag "k8s.io/kubernetes/pkg/util/flag"
 	_ "k8s.io/kubernetes/pkg/version/prometheus" // for version metric registration
 	"k8s.io/kubernetes/pkg/version/verflag"
-    "k8s.io/cloud-provider-vra/pkg/cloudprovider/providers/vra"
+
+	"k8s.io/cloud-provider-vra/packageg/cloudprovider/providers/vra"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"k8s.io/klog"
@@ -68,13 +70,13 @@ the cloud specific control loops shipped with Kubernetes.`,
 
 			c, err := s.Config()
 			if err != nil {
-				fmt.Fprintf(vra.Stderr, "%v\n", err)
-				vra.Exit(1)
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
 			}
 
 			if err := app.Run(c.Complete(), wait.NeverStop); err != nil {
-				fmt.Fprintf(vra.Stderr, "%v\n", err)
-				vra.Exit(1)
+				fmt.Fprintf(os.Stderr, "%v\n", err)
+				os.Exit(1)
 			}
 		},
 	}
@@ -98,7 +100,7 @@ the cloud specific control loops shipped with Kubernetes.`,
 
 	s.KubeCloudShared.CloudProvider.Name = vra.ProviderName
 	if err := command.Execute(); err != nil {
-		fmt.Fprintf(vra.Stderr, "error: %v\n", err)
-		vra.Exit(1)
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(1)
 	}
 }
