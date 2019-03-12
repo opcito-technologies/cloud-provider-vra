@@ -3,15 +3,15 @@ package vra
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
 	"time"
 	"gopkg.in/gcfg.v1"
+	"errors"
 
-	"k8s.io/api/core/v1"
+	// "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/klog"
@@ -21,7 +21,10 @@ const (
 	// ProviderName is the name of the vra provider
 	ProviderName = "vra"
 	defaultTimeOut   = 60 * time.Second
+	availabilityZone = "availability_zone"
 )
+
+var ErrNoAddressFound = errors.New("no address found for host")
 
 type MyDuration struct {
 	time.Duration
@@ -75,6 +78,7 @@ type LoadBalancerOpts struct {
 	Description string `json:"description"`
 	Routes      [] LBRouteOpts `json:"routes"`
 	Nics 		[] LBNicOpts `json:"nics"`
+	ProjectID   string `json:"projectId"`
 	InternetFacing bool `json:"internetFacing"`
 	TargetLinks [] string `json:"targetLinks"`
 }
@@ -169,10 +173,6 @@ func ReadConfig(config io.Reader) (Config, error) {
 // caller is a tiny helper for conditional unwind logic
 type caller bool
 
-
-// caller is a tiny helper for conditional unwind logic
-type caller bool
-
 func newCaller() caller   { return caller(true) }
 func (c *caller) disarm() { *c = false }
 
@@ -195,20 +195,21 @@ func checkVraOpts(vraOpts *Vra) error {
 	if len(lbOpts.TargetLinks) == 0 {
 		return fmt.Errorf("TargetLinks is not set in cloud provider config")
 	}
+	return nil
 }
 
 // NewVra creates a new new instance of the vra struct from a config struct
 func NewVra(cfg Config) (*Vra, error) {
 
 	vr := Vra{
-		apiHost:		cfg.Global.APIHost
-		authToken:		cfg.Global.APIToken
+		apiHost:		cfg.Global.APIHost,
+		authToken:		cfg.Global.APIToken,
 		lbOpts:         cfg.LoadBalancer,
 		bsOpts:         cfg.BlockStorage,
-		routeOpts:      cfg.Route
+		routeOpts:      cfg.Route,
 	}
 
-	err = checkVraOpts(&vr)
+	err := checkVraOpts(&vr)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +272,10 @@ func (vr *Vra) Zones() (cloudprovider.Zones, bool) {
 func (vr *Vra) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 
 	klog.V(4).Infof("Claiming to support GetZone")
-	return nil, nil
+	return cloudprovider.Zone{
+		FailureDomain: availabilityZone,
+		Region:        "",
+	}, nil
 }
 
 // GetZoneByProviderID implements Zones.GetZoneByProviderID
@@ -280,7 +284,10 @@ func (vr *Vra) GetZone(ctx context.Context) (cloudprovider.Zone, error) {
 func (vr *Vra) GetZoneByProviderID(ctx context.Context, providerID string) (cloudprovider.Zone, error) {
 
     klog.V(4).Infof("Claiming to support GetZoneByProviderID")
-	return nil, nil
+	return cloudprovider.Zone{
+		FailureDomain: availabilityZone,
+		Region:        "",
+	}, nil
 }
 
 
@@ -289,12 +296,15 @@ func (vr *Vra) GetZoneByProviderID(ctx context.Context, providerID string) (clou
 // does not initialize node data.
 func (vr *Vra) GetZoneByNodeName(ctx context.Context, nodeName types.NodeName) (cloudprovider.Zone, error) {
 	klog.V(4).Infof("Claiming to support GetZoneByNodeName")
-	return nil, nil
+	return cloudprovider.Zone{
+		FailureDomain: availabilityZone,
+		Region:        "",
+	}, nil
 }
 
 // Routes initializes routes support
 func (vr *Vra) Routes() (cloudprovider.Routes, bool) {
 	klog.V(4).Info("vra.Routes() called")
 	klog.V(1).Info("Claiming to support Routes")
-	return r, true
+	return nil, true
 }

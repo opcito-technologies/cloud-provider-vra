@@ -3,6 +3,8 @@
 package vra
 
 import (
+	"io/ioutil"
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
@@ -12,6 +14,7 @@ import (
 	"k8s.io/klog"
 	"k8s.io/api/core/v1"
 	cloudprovider "k8s.io/cloud-provider"
+	"strconv"
 )
 
 const (
@@ -22,6 +25,18 @@ const (
 	// to indicate that we want an internal loadbalancer service.
 	// If the value of ServiceAnnotationLoadBalancerInternal is false, it indicates that we want an external loadbalancer service. Default to false.
 	ServiceAnnotationLoadBalancerInternetFacing = "service.beta.kubernetes.io/vra-internet-facing-load-balancer"
+	ServiceAnnotationLoadBalancerNicDeviceIndex = "service.beta.kubernetes.io/vra-load-balancer-nics-index"
+	ServiceAnnotationLoadBalancerNetworkId = "service.beta.kubernetes.io/vra-load-balancer-network-id"
+	ServiceAnnotationLoadBalancerAddress = "service.beta.kubernetes.io/vra-load-balancer-address"
+	// ServiceAnnotationLoadBalancerSecurityGroups = "service.beta.kubernetes.io/vra-load-balancer-security-group"
+	ServiceAnnotationLoadBalancerTargetLinks = "service.beta.kubernetes.io/vra-load-balancer-target-links"
+
+	ServiceAnnotationLoadBalancerHealthyThreshold = "service.beta.kubernetes.io/vra-load-balancer-healthy-threshold"
+	ServiceAnnotationLoadBalancerUnHealthyThreshold = "service.beta.kubernetes.io/vra-load-balancer-unhealthy-threshold"
+	ServiceAnnotationLoadBalancerTimeOut = "service.beta.kubernetes.io/vra-load-balancer-timeout"
+	ServiceAnnotationLoadBalancerIntervalSeconds = "service.beta.kubernetes.io/vra-load-balancer-interval-seconds"
+	ServiceAnnotationLoadBalancerUrlPath = "service.beta.kubernetes.io/vra-load-balancer-urlpath"
+
 )
 
 
@@ -45,33 +60,12 @@ func getSecurityGroupName(service *v1.Service) string {
 	return securityGroupName
 }
 
-
-func toRuleProtocol(protocol v1.Protocol) rules.RuleProtocol {
-	switch protocol {
-	case v1.ProtocolTCP:
-		return rules.ProtocolTCP
-	case v1.ProtocolUDP:
-		return rules.ProtocolUDP
-	default:
-		return rules.RuleProtocol(strings.ToLower(string(protocol)))
-	}
-}
-
-func toListenersProtocol(protocol v1.Protocol) listeners.Protocol {
-	switch protocol {
-	case v1.ProtocolTCP:
-		return listeners.ProtocolTCP
-	default:
-		return listeners.Protocol(string(protocol))
-	}
-}
-
 // GetLoadBalancer returns whether the specified load balancer exists and its status
 func (lbaas *LbaasV2) GetLoadBalancer(ctx context.Context, clusterName string, service *v1.Service) (*v1.LoadBalancerStatus, bool, error) {
 	
 	status := &v1.LoadBalancerStatus{}
 
-	return status, true, err
+	return status, true, nil
 }
 
 
@@ -173,21 +167,7 @@ func (lbaas *LbaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 		return nil, fmt.Errorf("there are no available nodes for LoadBalancer service %s/%s", apiService.Namespace, apiService.Name)
 	}
 
-	routes := apiService.Spec.routes
-	if len(routes) == 0 {
-		return nil, fmt.Errorf("no routes provided to vra load balancer")
-	}
-
-	nics := apiService.Spec.nics
-	if len(nicsnics) == 0 {
-		return nil, fmt.Errorf("no nics provided to vra load balancer")
-	}
-
-	targetLinks := apiService.Spec.targetLinks
-	if len(targetLinks) == 0 {
-		return nil, fmt.Errorf("no targetLinks provided to vra load balancer")
-	}
-
+	lbname := lbaas.GetLoadBalancerName(ctx, clusterName, apiService)
 
     var internalAnnotation bool
     internal := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerInternetFacing, "true")
@@ -204,9 +184,25 @@ func (lbaas *LbaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 
     lbaas.opts.InternetFacing = internalAnnotation
 
+
+	nicDeviceIndex := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerNicDeviceIndex, "1")
+
+	networkId := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerNetworkId, "")
+
+	nicaddress := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerAddress, "")
+
+	lbhlchkhealthythreshold := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerHealthyThreshold, "2")
+	lbhlchkunhealthythreshold := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerUnHealthyThreshold, "2")
+	lbhlchktimeout := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerTimeOut, "5")
+	lbhlchkinterval := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerIntervalSeconds, "60")
+	lbhlchkurlpath := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerUrlPath, "/index.html")
+
+	// lbsggroup := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerSecurityGroups, "")
+
+
     var lbaddress[] string
 
-    lbaddress=append(lbaddress, nics.addresses)
+    lbaddress = append(lbaddress, nicaddress)
 
     var lbniccustconf LBNicCustomConfigOpts
 	var lbnic LBNicOpts
@@ -214,31 +210,38 @@ func (lbaas *LbaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 	var lbroute LBRouteOpts
 
 	var vratoken VraTokenResp
-	// var lbreq LoadBalancerOpts
+	var lbreq LoadBalancerOpts
 
 	lbniccustconf.AwaitIp = true
-	lbnic.DeviceIndex = nics.deviceIndex
+	lbnic.DeviceIndex, _ = strconv.Atoi(nicDeviceIndex)
     lbnic.Addresses = lbaddress
-    lbnic.Name = nics.name
-    lbnic.NetworkId = nics.networkId
+    lbnic.Name = lbname
+    lbnic.NetworkId = networkId
     lbnic.CustomProperties = lbniccustconf
 
-    hlthchk := apiService.Spec.routes.healthCheckConfiguration
+    lbhlchk.HealthyThreshold, _ = strconv.Atoi(lbhlchkhealthythreshold)
+	lbhlchk.UnhealthyThreshold, _ = strconv.Atoi(lbhlchkunhealthythreshold)
+	lbhlchk.TimeoutSeconds, _ = strconv.Atoi(lbhlchktimeout)
+	lbhlchk.IntervalSeconds, _ = strconv.Atoi(lbhlchkinterval)
+	lbhlchk.URLPath = lbhlchkurlpath
 
-    lbhlchk.HealthyThreshold = hlthchk.healthyThreshold
-	lbhlchk.UnhealthyThreshold = hlthchk.unhealthyThreshold
-	lbhlchk.TimeoutSeconds = hlthchk.timeoutSeconds
-	lbhlchk.IntervalSeconds = hlthchk.intervalSeconds
-	lbhlchk.URLPath = hlthchk.urlPath
-	lbhlchk.Port = hlthchk.port
-	lbhlchk.Protocol = hlthchk.protocol
+	ports := apiService.Spec.Ports
 
-	lbroute.Protocol = apiService.Spec.routes.protocol
-	lbroute.Port = apiService.Spec.routes.port
-	lbroute.MemberPort = apiService.Spec.routes.memberPort
-	lbroute.MemberProtocol = apiService.Spec.routes.memberProtocol
-	lbroute.HealthCheckConfiguration = hlthchk
+	if len(ports) == 0 {
+		return nil, fmt.Errorf("no ports provided to vra load balancer")
+	}
 
+	for _, port := range ports {
+		lbhlchk.Protocol = string(port.Protocol)
+		lbhlchk.Port = string(port.Port)
+		lbroute.Protocol  = string(port.Protocol)
+		lbroute.Port = string(port.Port)
+		lbroute.MemberPort = string(port.Port)
+		lbroute.MemberProtocol = string(port.Protocol)
+	}
+
+	
+	lbroute.HealthCheckConfiguration = lbhlchk
 
 	lbreq.Routes = [] LBRouteOpts { lbroute }
 	lbreq.Nics = [] LBNicOpts { lbnic }
@@ -246,9 +249,13 @@ func (lbaas *LbaasV2) EnsureLoadBalancer(ctx context.Context, clusterName string
 	lbreq.ProjectID =   getStringFromServiceAnnotation(apiService, ServiceAnnotationProjectID, "df87d5e2-ac4e-4b38-8d6f-a6260dc63e95")
 	
 	lbreq.Description = "vra lb"
-	lbreq.Name = nics.name
+	lbreq.Name = lbname
 	lbreq.InternetFacing = true
-	lbreq.TargetLinks = target
+
+	targetLinks := getStringFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerTargetLinks, "")
+	var target = [] string {targetLinks}
+
+	lbreq.TargetLinks =  target  
 
 	logindata := map[string]string{"refreshToken": lbaas.authToken}
 	loginreq, _ := json.Marshal(logindata)

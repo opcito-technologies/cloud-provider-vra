@@ -20,7 +20,7 @@ import (
 	_ "k8s.io/kubernetes/pkg/version/prometheus" // for version metric registration
 	"k8s.io/kubernetes/pkg/version/verflag"
 
-	"k8s.io/cloud-provider-vra/packageg/cloudprovider/providers/vra"
+	"k8s.io/cloud-provider-vra/pkg/cloudprovider/providers/vra"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
