@@ -129,8 +129,9 @@ type Config struct {
 
 
 func init() {
+	klog.Warningf("**** inside vra init before RegisterMetrics *******")
 	RegisterMetrics()
-
+	klog.Warningf("**** inside vra init after RegisterMetrics *******")
 	cloudprovider.RegisterCloudProvider(ProviderName, func(config io.Reader) (cloudprovider.Interface, error) {
 		cfg, err := ReadConfig(config)
 		if err != nil {
@@ -140,8 +141,10 @@ func init() {
 		if err != nil {
 			klog.V(1).Infof("New vra client created failed with config")
 		}
+		klog.Warningf("**** inside vra init binary ******* %q", err)
 		return cloud, err
 	})
+	klog.Warningf("**** inside vra  init end of func *******")
 }
 
 
@@ -184,17 +187,7 @@ func (c *caller) call(f func()) {
 
 // check opts for vra
 func checkVraOpts(vraOpts *Vra) error {
-	lbOpts := vraOpts.lbOpts
 
-	if len(lbOpts.Routes) == 0 {
-		return fmt.Errorf("routes not set in cloud provider config")
-	}
-	if len(lbOpts.Nics) == 0 {
-		return fmt.Errorf("Nics is not set in cloud provider config")
-	}
-	if len(lbOpts.TargetLinks) == 0 {
-		return fmt.Errorf("TargetLinks is not set in cloud provider config")
-	}
 	return nil
 }
 
@@ -219,6 +212,7 @@ func NewVra(cfg Config) (*Vra, error) {
 
 // Initialize passes a Kubernetes clientBuilder interface to the cloud provider
 func (vr *Vra) Initialize(clientBuilder cloudprovider.ControllerClientBuilder, stop <-chan struct{}) {
+	
 }
 
 // mapNodeNameToServerName maps a k8s NodeName to an VRA Server Name
